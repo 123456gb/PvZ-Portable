@@ -522,19 +522,12 @@ bool SexyAppBase::ReadDemoBuffer(std::string &theError)
 	if (!aFile.read(reinterpret_cast<char*>(&aTimeZoneOffsetLE), sizeof(aTimeZoneOffsetLE))) return false;
 	mDemoTimeZoneOffset = static_cast<int32_t>(FromLE32(aTimeZoneOffsetLE));
 
-	ushort aStrLen = 4;
+	// Legacy product-version field, consumed but ignored; compatibility is gated by DEMO_VERSION.
+	uint16_t aStrLen = 4;
 	if (!aFile.read(reinterpret_cast<char*>(&aStrLen), sizeof(aStrLen))) return false;
-	aStrLen = std::min<ushort>(FromLE16(aStrLen), 255);
+	aStrLen = std::min<uint16_t>(FromLE16(aStrLen), 255);
 	char aStr[256];
 	if (!aFile.read(aStr, aStrLen)) return false;
-	aStr[aStrLen] = '\0';
-
-	DBG_ASSERTE(mProductVersion == aStr);
-	if (mProductVersion != aStr)
-	{
-		theError = "This demo file appears to be for '" + std::string(aStr) + "'";
-		return false;
-	}
 
 	std::streampos aFilePos = aFile.tellg();
 	aFile.seekg(0, std::ios::end);
@@ -546,9 +539,9 @@ bool SexyAppBase::ReadDemoBuffer(std::string &theError)
 	// read marker list
 	if (aVersion >= 2) 
 	{
-		int aSize;
+		int32_t aSize;
 		if (!aFile.read(reinterpret_cast<char*>(&aSize), sizeof(aSize))) return false;
-		aSize = static_cast<int>(FromLE32(static_cast<uint32_t>(aSize)));
+		aSize = static_cast<int32_t>(FromLE32(static_cast<uint32_t>(aSize)));
 		aBytesLeft -= 4;
 
 		if (aSize < 0 || aSize >= aBytesLeft)
@@ -673,9 +666,9 @@ void SexyAppBase::WriteDemoBuffer()
 			uint32_t aTimeZoneOffsetLE = ToLE32(static_cast<uint32_t>(mDemoTimeZoneOffset));
 			aFile.write(reinterpret_cast<const char*>(&aTimeZoneOffsetLE), sizeof(aTimeZoneOffsetLE));
 
-			ushort aStrLen = ToLE16(static_cast<uint16_t>(mProductVersion.length()));
-			aFile.write(reinterpret_cast<const char*>(&aStrLen), sizeof(aStrLen));		
-			aFile.write(mProductVersion.c_str(), static_cast<std::streamsize>(mProductVersion.length()));
+			// Legacy product-version field; kept empty so older builds that still validate it accept recordings from this build.
+			uint16_t aStrLen = ToLE16(0);
+			aFile.write(reinterpret_cast<const char*>(&aStrLen), sizeof(aStrLen));
 
 			Buffer aMarkerBuffer;
 			aMarkerBuffer.WriteUInt32(static_cast<uint32_t>(mDemoMarkerList.size()));
