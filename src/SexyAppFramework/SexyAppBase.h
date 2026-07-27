@@ -298,8 +298,9 @@ public:
 	bool					mManualShutdown;
 	std::string				mDemoPrefix;
 	std::string				mDemoFileName;
-	bool					mHasCustomDemoFile; // an explicit -demofile overrides automatic demo file selection
+	bool					mHasCustomDemoFile; // an explicit file argument overrides automatic demo file selection
 	uint					mDemoRecordFileLimit;
+	size_t					mDemoPlayIndex; // -playnum: index into the timestamp/name-ordered recording list
 	Buffer					mDemoBuffer;
 	int						mLastDemoMouseX;
 	int						mLastDemoMouseY;
@@ -454,8 +455,7 @@ public:
 
 	virtual void			DoParseCmdLine();
 	void					SetArgs(int argc, char** argv);
-	virtual void			ParseCmdLine(const std::string& theCmdLine);
-	virtual void			HandleCmdLineParam(const std::string& theParamName, const std::string& theParamValue);
+	virtual void			HandleCmdLineParam(std::string_view theParamName, std::string_view theParamValue);
 	virtual void			HandleNotifyGameMessage(int theType); // for HWND_BROADCAST of mNotifyGameMessage (0-1000 are reserved for SexyAppBase for theType)
 	virtual void			HandleGameAlreadyRunning(); 
 

@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <charconv>
 #include <filesystem>
 #include <system_error>
 #include <tuple>
@@ -385,6 +386,7 @@ SexyAppBase::SexyAppBase()
 	mDemoFileName = mDemoPrefix + ".dmo";
 	mHasCustomDemoFile = false;
 	mDemoRecordFileLimit = 0;
+	mDemoPlayIndex = 0;
 	mPlayingDemoBuffer = false;
 	mManualShutdown = false;
 	mRecordingDemoBuffer = false;
@@ -3269,80 +3271,6 @@ void SexyAppBase::SetDouble(const std::string& theId, double theValue)
 		aPair.first->second = theValue;
 }
 
-void SexyAppBase::DoParseCmdLine()
-{
-	if (mArgv != nullptr)
-	{
-		for (int i = 1; i < mArgc; i++)
-		{
-			std::string aCurParamName = mArgv[i];
-			std::string aCurParamValue;
-
-			size_t anEqualsPos = aCurParamName.find('=');
-			if (anEqualsPos != std::string::npos)
-			{
-				aCurParamValue = aCurParamName.substr(anEqualsPos + 1);
-				aCurParamName = aCurParamName.substr(0, anEqualsPos);
-			}
-
-			HandleCmdLineParam(aCurParamName, aCurParamValue);
-		}
-	}
-
-	mCmdLineParsed = true;
-}
-
-void SexyAppBase::SetArgs(int argc, char** argv)
-{
-	mArgc = argc;
-	mArgv = argv;
-}
-
-void SexyAppBase::ParseCmdLine(const std::string& theCmdLine)
-{
-	// Command line example:  -play -demofile="game demo.dmo"
-	// Results in HandleCmdLineParam("-play", ""); HandleCmdLineParam("-demofile", "game demo.dmo");
-	std::string aCurParamName;
-	std::string aCurParamValue;
-
-	//int aSpacePos = 0; // Unused
-	bool inQuote = false;
-	bool onValue = false;
-
-	for (size_t i = 0; i < theCmdLine.length(); i++)
-	{
-		char c = theCmdLine[i];
-		bool atEnd = false;
-		
-		if (c == '"')
-		{
-			inQuote = !inQuote;
-
-			if (!inQuote)
-				atEnd = true;
-		}
-		else if ((c == ' ') && (!inQuote))
-			atEnd = true;
-		else if (c == '=')
-			onValue = true;
-		else if (onValue)
-			aCurParamValue += c;
-		else
-			aCurParamName += c;
-		
-		if (i == theCmdLine.length() - 1)
-			atEnd = true;
-		
-		if (atEnd && !aCurParamName.empty())
-		{
-			HandleCmdLineParam(aCurParamName, aCurParamValue);
-			aCurParamName = "";
-			aCurParamValue = "";
-			onValue = false;
-		}	
-	}
-}
-
 static std::string GetTimestampedDemoFileName(std::string_view theDemoPrefix)
 {
 	time_t aNow = time(nullptr);
@@ -3364,20 +3292,78 @@ static std::string GetTimestampedDemoFileName(std::string_view theDemoPrefix)
 	return aName;
 }
 
-void SexyAppBase::HandleCmdLineParam(const std::string& theParamName, const std::string& theParamValue)
+static bool ParamTakesValue(std::string_view theParamName)
+{
+	static constexpr std::string_view kValueParams[] = {
+		"-play", "-playnum", "-record", "-recnum", "-resdir", "-savedir",
+	};
+	return std::ranges::find(kValueParams, theParamName) != std::end(kValueParams);
+}
+
+void SexyAppBase::DoParseCmdLine()
+{
+	if (mArgv != nullptr)
+	{
+		for (int i = 1; i < mArgc; i++)
+		{
+			std::string_view aParam = mArgv[i];
+			std::string_view aValue;
+
+			size_t anEqualsPos = aParam.find('=');
+			if (anEqualsPos != std::string_view::npos)
+			{
+				aValue = aParam.substr(anEqualsPos + 1);
+				aParam = aParam.substr(0, anEqualsPos);
+			}
+			else if (i + 1 < mArgc && mArgv[i + 1][0] != '-' && ParamTakesValue(aParam))
+			{
+				aValue = mArgv[++i];
+			}
+
+			HandleCmdLineParam(aParam, aValue);
+		}
+	}
+
+	// Resolve the demo file only after all params are parsed, so explicit files win regardless of order
+	if (mPlayingDemoBuffer && !mHasCustomDemoFile)
+	{
+		auto aDemoFiles = FindDemoFiles(mDemoPrefix);
+		if (aDemoFiles.empty())
+		{
+			Popup("No demo recordings found");
+			DoExit(1);
+			return;
+		}
+		mDemoFileName = aDemoFiles[std::min(mDemoPlayIndex, aDemoFiles.size() - 1)];
+	}
+	else if (mRecordingDemoBuffer && !mHasCustomDemoFile)
+		mDemoFileName = GetTimestampedDemoFileName(mDemoPrefix);
+
+	mCmdLineParsed = true;
+}
+
+void SexyAppBase::SetArgs(int argc, char** argv)
+{
+	mArgc = argc;
+	mArgv = argv;
+}
+
+void SexyAppBase::HandleCmdLineParam(std::string_view theParamName, std::string_view theParamValue)
 {
 	if (theParamName == "-play" || theParamName == "-playnum")
 	{
-		if (!mHasCustomDemoFile)
+		mHasCustomDemoFile = false; // each occurrence fully redefines the request: last one wins
+		mDemoPlayIndex = 0;
+		if (theParamName == "-play" && !theParamValue.empty())
 		{
-			auto aDemoFiles = FindDemoFiles(mDemoPrefix);
-			if (!aDemoFiles.empty())
-			{
-				size_t aIndex = 0; // -play: first; -playnum: N-th in timestamp/name order
-				if (theParamName == "-playnum")
-					aIndex = static_cast<size_t>(std::max(atoi(theParamValue.c_str()), 1) - 1);
-				mDemoFileName = aDemoFiles[std::min(aIndex, aDemoFiles.size() - 1)];
-			}
+			mDemoFileName = std::string(theParamValue);
+			mHasCustomDemoFile = true;
+		}
+		else if (theParamName == "-playnum")
+		{
+			int aNum = 0;
+			std::from_chars(theParamValue.data(), theParamValue.data() + theParamValue.size(), aNum);
+			mDemoPlayIndex = static_cast<size_t>(std::max(aNum, 1) - 1);
 		}
 		mPlayingDemoBuffer = true;
 		mRecordingDemoBuffer = false;
@@ -3386,25 +3372,24 @@ void SexyAppBase::HandleCmdLineParam(const std::string& theParamName, const std:
 	{
 		if (theParamName == "-recnum") // keep only the first N recordings in timestamp/name order
 		{
-			int aNum = atoi(theParamValue.c_str());
-			if (aNum<=0)
-				aNum=5;
+			int aNum = 0;
+			std::from_chars(theParamValue.data(), theParamValue.data() + theParamValue.size(), aNum);
+			if (aNum <= 0)
+				aNum = 5;
 			mDemoRecordFileLimit = static_cast<uint>(aNum);
 		}
-		if (!mHasCustomDemoFile) // choose an automatic timestamped name
-			mDemoFileName = GetTimestampedDemoFileName(mDemoPrefix);
+		else
+		{
+			mHasCustomDemoFile = false;
+			if (!theParamValue.empty())
+			{
+				mDemoFileName = std::string(theParamValue);
+				mHasCustomDemoFile = true;
+			}
+		}
 		mRecordingDemoBuffer = true;
 		mPlayingDemoBuffer = false;
 	}
-	else if (theParamName == "-demofile")
-	{
-		mDemoFileName = theParamValue;
-		mHasCustomDemoFile = true;
-		if (mDemoFileName.length() < 2)
-		{
-			mDemoFileName = GetAppDataPath(mDemoFileName);
-		}
-	}	
 	else if (theParamName == "-crash")
 	{
 		// Try to access nullptr
@@ -3417,16 +3402,16 @@ void SexyAppBase::HandleCmdLineParam(const std::string& theParamName, const std:
 	}
 	else if (theParamName == "-resdir")
 	{
-		mResourceDir = theParamValue;
+		mResourceDir = std::string(theParamValue);
 	}
 	else if (theParamName == "-savedir")
 	{
-		mCustomSaveDir = theParamValue;
+		mCustomSaveDir = std::string(theParamValue);
 	}
 	else
 	{
-		Popup(GetString("INVALID_COMMANDLINE_PARAM", "Invalid command line parameter: ") + theParamName);
-		DoExit(0);
+		Popup(GetString("INVALID_COMMANDLINE_PARAM", "Invalid command line parameter: ").append(theParamName));
+		DoExit(1);
 	}
 }
 
@@ -3494,7 +3479,7 @@ void SexyAppBase::Init()
 		{
 			mPlayingDemoBuffer = false;
 			Popup(anError);
-			DoExit(0);
+			DoExit(1);
 			return;
 		}
 	}
