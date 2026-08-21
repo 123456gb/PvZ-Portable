@@ -29,7 +29,7 @@
 #include <algorithm>
 
 int gParticleDefCount;
-PvzpParticleDefinition* gParticleDefArray;
+std::unique_ptr<PvzpParticleDefinition[]> gParticleDefArray;
 int gParticleParamArraySize;
 const ParticleParams* gParticleParamArray;
 
@@ -208,9 +208,7 @@ void PvzpParticleLoadDefinitions(const ParticleParams* theParticleParamArray, in
 	gParticleParamArraySize = theParticleParamArraySize;
 	gParticleParamArray = theParticleParamArray;
 	gParticleDefCount = theParticleParamArraySize;
-	gParticleDefArray = new PvzpParticleDefinition[theParticleParamArraySize];
-	// This was uninitialised before!
-	// memset(gParticleDefArray, 0, theParticleParamArraySize*sizeof(PvzpParticleDefinition));
+	gParticleDefArray = std::make_unique<PvzpParticleDefinition[]>(theParticleParamArraySize);
 
 	for (int i = 0; i < gParticleParamArraySize; i++)
 	{
@@ -230,8 +228,7 @@ void PvzpParticleFreeDefinitions()
 {
 	for (int i = 0; i < gParticleDefCount; i++)
 		DefinitionFreeMap(&gParticleDefMap, &gParticleDefArray[i]);
-	delete[] gParticleDefArray;
-	gParticleDefArray = nullptr;
+	gParticleDefArray.reset();
 	gParticleDefCount = 0;
 	gParticleParamArray = nullptr;
 	gParticleParamArraySize = 0;
@@ -297,7 +294,7 @@ void PvzpParticleEmitter::PvzpEmitterInitialize(float theX, float theY, PvzpPart
 	mImageOverride = nullptr;
 	mSystemDuration = 0;
 	mEmitterDef = theEmitterDef;
-	mParticleList.SetAllocator(&theSystem->mParticleHolder->mEmitterListNodeAllocator);
+	mParticleList.SetAllocator(&theSystem->mParticleHolder->mParticleListNodeAllocator);
 
 	if (FloatTrackIsSet(mEmitterDef->mSystemDuration))
 		mSystemDuration = FloatTrackEvaluate(mEmitterDef->mSystemDuration, 0.0f, Sexy::Rand(1.0f));

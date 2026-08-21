@@ -4262,9 +4262,8 @@ void Plant::BlowAwayFliers()
 			continue;
 		if (!aZombie->IsDeadOrDying())
 		{
-			// Verified as a pure function, safe to remove
-			// Rect aZombieRect = aZombie->GetZombieRect();
-			if (aZombie->IsFlying())
+			// Blow away only flying balloons here; balloons mid-pop are excluded
+			if (aZombie->mZombiePhase == ZombiePhase::PHASE_BALLOON_FLYING)
 			{
 				aZombie->mBlowingAway = true;
 			}
@@ -5038,13 +5037,13 @@ std::string Plant::GetNameString(SeedType theSeedType, SeedType theImitaterType)
 {
 	const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
 	std::string aName = StrFormat("[%s]", aPlantDef.mPlantName);
-	std::string aTranslatedName = PvzpStringTranslate(aName);
+	std::string aTranslatedName(PvzpStringTranslate(aName));
 
 	if (theSeedType == SeedType::SEED_IMITATER && theImitaterType != SeedType::SEED_NONE)
 	{
 		const PlantDefinition& aImitaterDef = GetPlantDefinition(theImitaterType);
 		std::string aImitaterName = StrFormat("[%s]", aImitaterDef.mPlantName);
-		std::string aTranslatedImitaterName = PvzpStringTranslate(aImitaterName);
+		std::string aTranslatedImitaterName(PvzpStringTranslate(aImitaterName));
 		return StrFormat("%s %s", aTranslatedName.c_str(), aTranslatedImitaterName.c_str());
 	}
 
@@ -5055,7 +5054,7 @@ std::string Plant::GetToolTip(SeedType theSeedType)
 {
 	const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
 	std::string aToolTip = StrFormat("[%s_TOOLTIP]", aPlantDef.mPlantName);
-	return PvzpStringTranslate(aToolTip);
+	return std::string(PvzpStringTranslate(aToolTip));
 }
 
 int Plant::GetRefreshTime(SeedType theSeedType, SeedType theImitaterType)
